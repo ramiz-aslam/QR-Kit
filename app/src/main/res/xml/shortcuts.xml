@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="scan_qr"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_scan"
+        android:shortcutShortLabel="@string/shortcut_scan_short"
+        android:shortcutLongLabel="@string/shortcut_scan_long">
+        <intent
+            android:action="com.app.qrkit.ACTION_SCAN_QR"
+            android:targetPackage="com.app.qrkit"
+            android:targetClass="com.app.qrkit.MainActivity"
+            android:data="qrkit://action/scan">
+            <extra android:name="shortcut_action" android:value="scan" />
+        </intent>
+        <categories android:name="android.intent.category.DEFAULT" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="create_qr"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_create"
+        android:shortcutShortLabel="@string/shortcut_create_short"
+        android:shortcutLongLabel="@string/shortcut_create_long">
+        <intent
+            android:action="com.app.qrkit.ACTION_CREATE_QR"
+            android:targetPackage="com.app.qrkit"
+            android:targetClass="com.app.qrkit.MainActivity"
+            android:data="qrkit://action/create">
+            <extra android:name="shortcut_action" android:value="create" />
+        </intent>
+        <categories android:name="android.intent.category.DEFAULT" />
+    </shortcut>
+</shortcuts>

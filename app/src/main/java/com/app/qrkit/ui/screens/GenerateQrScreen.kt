@@ -6,6 +6,13 @@ import android.graphics.Bitmap
 import android.graphics.Color
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.ui.draw.alpha
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -41,6 +48,9 @@ import androidx.compose.ui.unit.sp
 import com.app.qrkit.R
 import com.app.qrkit.data.QrCode
 import com.app.qrkit.ui.components.InlineColorPicker
+import com.app.qrkit.ui.components.QrLogoShape
+import com.app.qrkit.ui.components.QrFrameStyle
+import com.app.qrkit.ui.components.QrFrameRenderer
 import com.app.qrkit.ui.components.ScaleOnPressFilledIconButton
 import com.app.qrkit.ui.icons.*
 
@@ -56,11 +66,16 @@ import java.util.UUID
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
+import com.app.qrkit.ui.components.QrEyeShape
+import com.app.qrkit.ui.components.QrPixelShape
+import com.app.qrkit.ui.components.QrDesignRenderer
 import com.app.qrkit.ui.icons.QrCodeScannerIcon
 
 enum class QrCustomizationTab(val title: String) {
     COLOR("Color"),
     CORNERS("Corners"),
+    LOGO("Logo"),
+    FRAME("Frame"),
     TEST("Test");
 }
 
@@ -160,6 +175,27 @@ fun GenerateQrScreen(
     val screenBgColor = if (isDark) ComposeColor.Black else ComposeColor.White
     val containerBgColor = if (isDark) ComposeColor(0xFF1E1E1E) else ComposeColor(0xFFF2F2F2)
     val buttonBgColor = if (isDark) ComposeColor(0xFF242424) else ComposeColor(0xFFF2F2F2)
+    val contentBoxColors = OutlinedTextFieldDefaults.colors(
+        focusedContainerColor = ComposeColor.White,
+        unfocusedContainerColor = ComposeColor.White,
+        disabledContainerColor = ComposeColor.White,
+        errorContainerColor = ComposeColor.White,
+        focusedBorderColor = MaterialTheme.colorScheme.primary,
+        unfocusedBorderColor = MaterialTheme.colorScheme.primary,
+        focusedTextColor = ComposeColor.Black,
+        unfocusedTextColor = ComposeColor.Black,
+        disabledTextColor = ComposeColor.Black.copy(alpha = 0.6f),
+        errorTextColor = ComposeColor.Black,
+        focusedLabelColor = MaterialTheme.colorScheme.primary,
+        unfocusedLabelColor = ComposeColor(0xFF555555),
+        cursorColor = MaterialTheme.colorScheme.primary,
+        focusedPlaceholderColor = ComposeColor(0xFF888888),
+        unfocusedPlaceholderColor = ComposeColor(0xFF888888),
+        focusedLeadingIconColor = MaterialTheme.colorScheme.primary,
+        unfocusedLeadingIconColor = ComposeColor(0xFF555555),
+        focusedTrailingIconColor = MaterialTheme.colorScheme.primary,
+        unfocusedTrailingIconColor = ComposeColor(0xFF555555)
+    )
     
     val coroutineScope = rememberCoroutineScope()
     
@@ -282,19 +318,43 @@ fun GenerateQrScreen(
         )
     }
     
-    var selectedTemplateId by remember { mutableStateOf<String?>(qrToEdit?.templateId) }
-    
     var eyeColor by remember { mutableStateOf(ComposeColor.Black) }
     var pixelColor by remember { mutableStateOf(ComposeColor.Black) }
     var eyeRadius by remember { mutableFloatStateOf(0f) }
     var pixelRadius by remember { mutableFloatStateOf(0f) }
     var bgColor by remember { mutableStateOf(if (qrToEdit != null) ComposeColor(qrToEdit.bgColor) else ComposeColor.White) }
     var bgRadius by remember { mutableFloatStateOf(qrToEdit?.bgRadius ?: 0f) }
+    var selectedEyeShape by remember { mutableStateOf(QrEyeShape.DEFAULT) }
+    var selectedPixelShape by remember { mutableStateOf(QrPixelShape.DEFAULT) }
     
     var bitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
     
     var selectedCustomizationTab by remember { mutableStateOf(QrCustomizationTab.COLOR) }
     var showCustomColorPickerFor by remember { mutableStateOf<String?>(null) }
+    var selectedLogo by remember { mutableStateOf("none") }
+    var selectedLogoShape by remember { mutableStateOf(com.app.qrkit.ui.components.QrLogoShape.ROUNDED) }
+    
+    val initialFrameStyle = if (qrToEdit?.templateId?.startsWith("frame_") == true) {
+        val frameId = qrToEdit.templateId.removePrefix("frame_")
+        QrFrameStyle.values().firstOrNull { it.id == frameId } ?: QrFrameStyle.NONE
+    } else {
+        QrFrameStyle.NONE
+    }
+    var selectedFrameStyle by remember { mutableStateOf(initialFrameStyle) }
+    val defaultCtaForType = when (type) {
+        "WIFI" -> "CONNECT TO WI-FI"
+        "PHONE" -> "CALL US"
+        "EMAIL" -> "EMAIL US"
+        "CONTACT" -> "SAVE CONTACT"
+        "LOCATION" -> "FIND US"
+        else -> "SCAN ME"
+    }
+    var frameCtaText by remember { mutableStateOf(defaultCtaForType) }
+    var frameColor by remember { mutableStateOf(pixelColor) }
+    var rawQrBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
+    var cachedBitMatrixContent by remember { mutableStateOf<String?>(null) }
+    var cachedBitMatrixEc by remember { mutableStateOf<com.google.zxing.qrcode.decoder.ErrorCorrectionLevel?>(null) }
+    var cachedBitMatrix by remember { mutableStateOf<com.google.zxing.common.BitMatrix?>(null) }
     
     val previewContent = remember(
         type, actualContent, wifiPass,
@@ -321,97 +381,34 @@ fun GenerateQrScreen(
     }
     
     val context = LocalContext.current
-    LaunchedEffect(previewContent, eyeColor, pixelColor, eyeRadius, pixelRadius, bgColor, bgRadius, selectedTemplateId, context) {
+
+    LaunchedEffect(
+        previewContent, eyeColor, pixelColor, eyeRadius, pixelRadius, bgColor, bgRadius,
+        selectedEyeShape, selectedPixelShape, selectedLogo, selectedLogoShape,
+        selectedFrameStyle, frameCtaText, frameColor, context
+    ) {
         if (previewContent.isNotBlank()) {
             withContext(Dispatchers.Default) {
                 try {
-                    val hints = mapOf(com.google.zxing.EncodeHintType.MARGIN to 0)
-                    val writer = com.google.zxing.qrcode.QRCodeWriter()
-                    val bitMatrix = writer.encode(previewContent, com.google.zxing.BarcodeFormat.QR_CODE, 0, 0, hints)
-                    
-                    val matrixWidth = bitMatrix.width
-                    val matrixHeight = bitMatrix.height
-                    val marginModules = 2
-                    val totalWidth = matrixWidth + marginModules * 2
-                    val moduleSize = 512f / totalWidth
-                    
-                    val qrBmp = Bitmap.createBitmap(512, 512, Bitmap.Config.ARGB_8888)
-                    val qrCanvas = android.graphics.Canvas(qrBmp)
-                    
-                    val bgPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
-                    bgPaint.color = bgColor.toArgb()
-                    val maxCornerPx = 512f / 2f
-                    val cornerRadiusPx = bgRadius * maxCornerPx
-                    if (cornerRadiusPx > 0f) {
-                        qrCanvas.drawRoundRect(android.graphics.RectF(0f, 0f, 512f, 512f), cornerRadiusPx, cornerRadiusPx, bgPaint)
-                    } else {
-                        qrCanvas.drawRect(0f, 0f, 512f, 512f, bgPaint)
-                    }
-
-                    val eyePaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
-                    eyePaint.color = eyeColor.toArgb()
-
-                    val pixelPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
-                    pixelPaint.color = pixelColor.toArgb()
-
-                    for (x in 0 until matrixWidth) {
-                        for (y in 0 until matrixHeight) {
-                            val isEye = (x < 7 && y < 7) || (x > matrixWidth - 8 && y < 7) || (x < 7 && y > matrixHeight - 8)
-                            if (bitMatrix[x, y] && !isEye) {
-                                val left = (x + marginModules) * moduleSize
-                                val top = (y + marginModules) * moduleSize
-                                val right = left + moduleSize
-                                val bottom = top + moduleSize
-                                
-                                val radius = pixelRadius * (moduleSize / 2f)
-                                
-                                qrCanvas.drawRoundRect(
-                                    android.graphics.RectF(left, top, right, bottom),
-                                    radius, radius, pixelPaint
-                                )
-                            }
-                        }
-                    }
-                    
-                    val eyeBgPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
-                    eyeBgPaint.color = bgColor.toArgb()
-                    
-                    val drawEye = { ex: Int, ey: Int ->
-                        val outerRadius = eyeRadius * 3.5f * moduleSize
-                        val hollowRadius = java.lang.Math.max(0f, outerRadius - moduleSize)
-                        val innerRadius = eyeRadius * 1.5f * moduleSize
-                        
-                        val outerRect = android.graphics.RectF(
-                            (ex + marginModules) * moduleSize,
-                            (ey + marginModules) * moduleSize,
-                            (ex + 7 + marginModules) * moduleSize,
-                            (ey + 7 + marginModules) * moduleSize
-                        )
-                        qrCanvas.drawRoundRect(outerRect, outerRadius, outerRadius, eyePaint)
-                        
-                        val hollowRect = android.graphics.RectF(
-                            (ex + 1 + marginModules) * moduleSize,
-                            (ey + 1 + marginModules) * moduleSize,
-                            (ex + 6 + marginModules) * moduleSize,
-                            (ey + 6 + marginModules) * moduleSize
-                        )
-                        qrCanvas.drawRoundRect(hollowRect, hollowRadius, hollowRadius, eyeBgPaint)
-                        
-                        val innerRect = android.graphics.RectF(
-                            (ex + 2 + marginModules) * moduleSize,
-                            (ey + 2 + marginModules) * moduleSize,
-                            (ex + 5 + marginModules) * moduleSize,
-                            (ey + 5 + marginModules) * moduleSize
-                        )
-                        qrCanvas.drawRoundRect(innerRect, innerRadius, innerRadius, eyePaint)
-                    }
-                    
-                    drawEye(0, 0)
-                    drawEye(matrixWidth - 7, 0)
-                    drawEye(0, matrixHeight - 7)
-                    
-                    bitmap = qrBmp
-                    
+                    val finalBmp = QrDesignRenderer.renderQr(
+                        context = context,
+                        content = previewContent,
+                        eyeColor = eyeColor.toArgb(),
+                        pixelColor = pixelColor.toArgb(),
+                        bgColor = bgColor.toArgb(),
+                        eyeRadius = eyeRadius,
+                        pixelRadius = pixelRadius,
+                        bgRadius = bgRadius,
+                        eyeShape = selectedEyeShape,
+                        pixelShape = selectedPixelShape,
+                        logoId = selectedLogo,
+                        logoShape = selectedLogoShape,
+                        frameStyle = selectedFrameStyle,
+                        frameCtaText = frameCtaText,
+                        frameColor = frameColor.toArgb(),
+                        canvasSize = 1024
+                    )
+                    bitmap = finalBmp
                 } catch (e: Exception) {
                     e.printStackTrace()
                     bitmap = null
@@ -426,7 +423,11 @@ fun GenerateQrScreen(
     var scannedBarcodeType by remember { mutableStateOf<String?>(null) }
     var testErrorMessage by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(previewContent, eyeColor, pixelColor, eyeRadius, pixelRadius, bgColor, bgRadius, selectedTemplateId) {
+    LaunchedEffect(
+        previewContent, eyeColor, pixelColor, eyeRadius, pixelRadius, bgColor, bgRadius,
+        selectedEyeShape, selectedPixelShape, selectedLogo, selectedLogoShape,
+        selectedFrameStyle, frameCtaText, frameColor
+    ) {
         testStatus = QrTestStatus.NOT_TESTED
         scannedContent = null
         scannedBarcodeType = null
@@ -503,29 +504,31 @@ fun GenerateQrScreen(
     val handleSave = {
         if (canSave) {
             coroutineScope.launch {
-                val imageFileName = "qr_" + System.currentTimeMillis() + ".png"
-                val file = java.io.File(context.filesDir, imageFileName)
-                bitmap?.let { b ->
-                    java.io.FileOutputStream(file).use { out ->
-                        b.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)
+                withContext(Dispatchers.IO) {
+                    val imageFileName = "qr_" + System.currentTimeMillis() + ".png"
+                    val file = java.io.File(context.filesDir, imageFileName)
+                    bitmap?.let { b ->
+                        java.io.FileOutputStream(file).use { out ->
+                            b.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)
+                        }
                     }
+                    
+                    val finalName = name.trim().ifBlank { "QR Code" }
+                    
+                    val newQr = QrCode(
+                        id = qrToEdit?.id ?: UUID.randomUUID().toString(),
+                        content = previewContent,
+                        type = type,
+                        categoryName = finalName,
+                        imagePath = file.absolutePath,
+                        isGenerated = true,
+                        templateId = if (selectedFrameStyle != QrFrameStyle.NONE) "frame_${selectedFrameStyle.id}" else null,
+                        createdAt = qrToEdit?.createdAt ?: System.currentTimeMillis(),
+                        bgColor = bgColor.toArgb().toLong(),
+                        bgRadius = if (selectedFrameStyle != QrFrameStyle.NONE) -1f else bgRadius
+                    )
+                    viewModel.insertQrCode(newQr)
                 }
-                
-                val finalName = name.trim().ifBlank { "QR Code" }
-                
-                val newQr = QrCode(
-                    id = qrToEdit?.id ?: UUID.randomUUID().toString(),
-                    content = previewContent,
-                    type = type,
-                    categoryName = finalName,
-                    imagePath = file.absolutePath,
-                    isGenerated = true,
-                    templateId = null,
-                    createdAt = qrToEdit?.createdAt ?: System.currentTimeMillis(),
-                    bgColor = bgColor.toArgb().toLong(),
-                    bgRadius = bgRadius
-                )
-                viewModel.insertQrCode(newQr)
                 
                 onSuccess()
             }
@@ -595,40 +598,34 @@ fun GenerateQrScreen(
                             )
                         }
                     } else if (currentStep == 2) {
-                        Box(
+                        Button(
+                            onClick = {
+                                if (canSave) {
+                                    handleSave()
+                                } else {
+                                    selectedCustomizationTab = QrCustomizationTab.TEST
+                                    android.widget.Toast.makeText(
+                                        context,
+                                        if (testStatus == QrTestStatus.FAILED) "QR code failed readability test. Please fix errors and re-test." else "Please test the QR code before saving.",
+                                        android.widget.Toast.LENGTH_SHORT
+                                    ).show()
+                                }
+                            },
+                            shape = CircleShape,
+                            contentPadding = PaddingValues(horizontal = 18.dp, vertical = 0.dp),
                             modifier = Modifier
                                 .padding(end = 8.dp)
-                                .clickable(
-                                    enabled = !canSave,
-                                    onClick = {
-                                        selectedCustomizationTab = QrCustomizationTab.TEST
-                                        android.widget.Toast.makeText(
-                                            context,
-                                            if (testStatus == QrTestStatus.FAILED) "QR code failed readability test. Please fix errors and re-test." else "Please test the QR code before saving.",
-                                            android.widget.Toast.LENGTH_SHORT
-                                        ).show()
-                                    }
-                                )
+                                .height(36.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (canSave) MaterialTheme.colorScheme.primary else (if (isDark) ComposeColor(0xFF2A2A2A) else ComposeColor(0xFFE0E0E0)),
+                                contentColor = if (canSave) MaterialTheme.colorScheme.onPrimary else (if (isDark) ComposeColor.White.copy(alpha = 0.45f) else ComposeColor.Black.copy(alpha = 0.45f))
+                            )
                         ) {
-                            Button(
-                                onClick = { handleSave() },
-                                enabled = canSave,
-                                shape = CircleShape,
-                                contentPadding = PaddingValues(horizontal = 18.dp, vertical = 0.dp),
-                                modifier = Modifier.height(36.dp),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = MaterialTheme.colorScheme.primary,
-                                    contentColor = MaterialTheme.colorScheme.onPrimary,
-                                    disabledContainerColor = if (isDark) ComposeColor(0xFF2A2A2A) else ComposeColor(0xFFE0E0E0),
-                                    disabledContentColor = if (isDark) ComposeColor.White.copy(alpha = 0.35f) else ComposeColor.Black.copy(alpha = 0.35f)
-                                )
-                            ) {
-                                Text(
-                                    text = "Save",
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 14.sp
-                                )
-                            }
+                            Text(
+                                text = "Save",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp
+                            )
                         }
                     }
                 },
@@ -725,12 +722,7 @@ fun GenerateQrScreen(
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(24.dp),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedContainerColor = containerBgColor,
-                            unfocusedContainerColor = containerBgColor,
-                            focusedBorderColor = MaterialTheme.colorScheme.primary,
-                            unfocusedBorderColor = ComposeColor.Transparent
-                        )
+                        colors = contentBoxColors
                     )
                     Spacer(modifier = Modifier.height(16.dp))
                     
@@ -752,37 +744,25 @@ fun GenerateQrScreen(
                                         }
                                     },
                                     label = { Text("Latitude") },
-                                    placeholder = { Text("e.g. 37.7749") },
                                     singleLine = true,
                                     keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
                                         keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
                                     ),
                                     modifier = Modifier.weight(1f),
                                     shape = RoundedCornerShape(20.dp),
-                                    colors = OutlinedTextFieldDefaults.colors(
-                                        focusedContainerColor = containerBgColor,
-                                        unfocusedContainerColor = containerBgColor,
-                                        focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                        unfocusedBorderColor = ComposeColor.Transparent
-                                    )
+                                    colors = contentBoxColors
                                 )
                                 OutlinedTextField(
                                     value = locLongitude,
                                     onValueChange = { locLongitude = it },
                                     label = { Text("Longitude") },
-                                    placeholder = { Text("e.g. -122.4194") },
                                     singleLine = true,
                                     keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
                                         keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
                                     ),
                                     modifier = Modifier.weight(1f),
                                     shape = RoundedCornerShape(20.dp),
-                                    colors = OutlinedTextFieldDefaults.colors(
-                                        focusedContainerColor = containerBgColor,
-                                        unfocusedContainerColor = containerBgColor,
-                                        focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                        unfocusedBorderColor = ComposeColor.Transparent
-                                    )
+                                    colors = contentBoxColors
                                 )
                             }
                             Spacer(modifier = Modifier.height(12.dp))
@@ -790,16 +770,10 @@ fun GenerateQrScreen(
                                 value = locPlaceName,
                                 onValueChange = { locPlaceName = it },
                                 label = { Text("Location Name / Address (Optional)") },
-                                placeholder = { Text("e.g. Central Park, New York") },
                                 singleLine = true,
                                 modifier = Modifier.fillMaxWidth(),
                                 shape = RoundedCornerShape(20.dp),
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedContainerColor = containerBgColor,
-                                    unfocusedContainerColor = containerBgColor,
-                                    focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                    unfocusedBorderColor = ComposeColor.Transparent
-                                )
+                                colors = contentBoxColors
                             )
                         }
                         "CONTACT" -> {
@@ -811,31 +785,19 @@ fun GenerateQrScreen(
                                     value = contactFirstName,
                                     onValueChange = { contactFirstName = it },
                                     label = { Text("First Name") },
-                                    placeholder = { Text("e.g. John") },
                                     singleLine = true,
                                     modifier = Modifier.weight(1f),
                                     shape = RoundedCornerShape(20.dp),
-                                    colors = OutlinedTextFieldDefaults.colors(
-                                        focusedContainerColor = containerBgColor,
-                                        unfocusedContainerColor = containerBgColor,
-                                        focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                        unfocusedBorderColor = ComposeColor.Transparent
-                                    )
+                                    colors = contentBoxColors
                                 )
                                 OutlinedTextField(
                                     value = contactLastName,
                                     onValueChange = { contactLastName = it },
                                     label = { Text("Last Name") },
-                                    placeholder = { Text("e.g. Doe") },
                                     singleLine = true,
                                     modifier = Modifier.weight(1f),
                                     shape = RoundedCornerShape(20.dp),
-                                    colors = OutlinedTextFieldDefaults.colors(
-                                        focusedContainerColor = containerBgColor,
-                                        unfocusedContainerColor = containerBgColor,
-                                        focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                        unfocusedBorderColor = ComposeColor.Transparent
-                                    )
+                                    colors = contentBoxColors
                                 )
                             }
                             Spacer(modifier = Modifier.height(12.dp))
@@ -843,38 +805,26 @@ fun GenerateQrScreen(
                                 value = contactPhone,
                                 onValueChange = { contactPhone = it },
                                 label = { Text("Phone Number") },
-                                placeholder = { Text("e.g. +1 (555) 019-2834") },
                                 singleLine = true,
                                 keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
                                     keyboardType = androidx.compose.ui.text.input.KeyboardType.Phone
                                 ),
                                 modifier = Modifier.fillMaxWidth(),
                                 shape = RoundedCornerShape(20.dp),
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedContainerColor = containerBgColor,
-                                    unfocusedContainerColor = containerBgColor,
-                                    focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                    unfocusedBorderColor = ComposeColor.Transparent
-                                )
+                                colors = contentBoxColors
                             )
                             Spacer(modifier = Modifier.height(12.dp))
                             OutlinedTextField(
                                 value = contactEmail,
                                 onValueChange = { contactEmail = it },
                                 label = { Text("Email Address") },
-                                placeholder = { Text("e.g. john.doe@example.com") },
                                 singleLine = true,
                                 keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
                                     keyboardType = androidx.compose.ui.text.input.KeyboardType.Email
                                 ),
                                 modifier = Modifier.fillMaxWidth(),
                                 shape = RoundedCornerShape(20.dp),
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedContainerColor = containerBgColor,
-                                    unfocusedContainerColor = containerBgColor,
-                                    focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                    unfocusedBorderColor = ComposeColor.Transparent
-                                )
+                                colors = contentBoxColors
                             )
                             Spacer(modifier = Modifier.height(12.dp))
                             Row(
@@ -885,31 +835,19 @@ fun GenerateQrScreen(
                                     value = contactCompany,
                                     onValueChange = { contactCompany = it },
                                     label = { Text("Company") },
-                                    placeholder = { Text("e.g. Acme Corp") },
                                     singleLine = true,
                                     modifier = Modifier.weight(1f),
                                     shape = RoundedCornerShape(20.dp),
-                                    colors = OutlinedTextFieldDefaults.colors(
-                                        focusedContainerColor = containerBgColor,
-                                        unfocusedContainerColor = containerBgColor,
-                                        focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                        unfocusedBorderColor = ComposeColor.Transparent
-                                    )
+                                    colors = contentBoxColors
                                 )
                                 OutlinedTextField(
                                     value = contactJobTitle,
                                     onValueChange = { contactJobTitle = it },
                                     label = { Text("Job Title") },
-                                    placeholder = { Text("e.g. Designer") },
                                     singleLine = true,
                                     modifier = Modifier.weight(1f),
                                     shape = RoundedCornerShape(20.dp),
-                                    colors = OutlinedTextFieldDefaults.colors(
-                                        focusedContainerColor = containerBgColor,
-                                        unfocusedContainerColor = containerBgColor,
-                                        focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                        unfocusedBorderColor = ComposeColor.Transparent
-                                    )
+                                    colors = contentBoxColors
                                 )
                             }
                             Spacer(modifier = Modifier.height(12.dp))
@@ -917,35 +855,23 @@ fun GenerateQrScreen(
                                 value = contactAddress,
                                 onValueChange = { contactAddress = it },
                                 label = { Text("Address") },
-                                placeholder = { Text("e.g. 123 Market St, San Francisco") },
                                 singleLine = true,
                                 modifier = Modifier.fillMaxWidth(),
                                 shape = RoundedCornerShape(20.dp),
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedContainerColor = containerBgColor,
-                                    unfocusedContainerColor = containerBgColor,
-                                    focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                    unfocusedBorderColor = ComposeColor.Transparent
-                                )
+                                colors = contentBoxColors
                             )
                             Spacer(modifier = Modifier.height(12.dp))
                             OutlinedTextField(
                                 value = contactWebsite,
                                 onValueChange = { contactWebsite = it },
                                 label = { Text("Website") },
-                                placeholder = { Text("https://example.com") },
                                 singleLine = true,
                                 keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
                                     keyboardType = androidx.compose.ui.text.input.KeyboardType.Uri
                                 ),
                                 modifier = Modifier.fillMaxWidth(),
                                 shape = RoundedCornerShape(20.dp),
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedContainerColor = containerBgColor,
-                                    unfocusedContainerColor = containerBgColor,
-                                    focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                    unfocusedBorderColor = ComposeColor.Transparent
-                                )
+                                colors = contentBoxColors
                             )
                             Spacer(modifier = Modifier.height(12.dp))
                             OutlinedTextField(
@@ -956,12 +882,7 @@ fun GenerateQrScreen(
                                 maxLines = 3,
                                 modifier = Modifier.fillMaxWidth(),
                                 shape = RoundedCornerShape(20.dp),
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedContainerColor = containerBgColor,
-                                    unfocusedContainerColor = containerBgColor,
-                                    focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                    unfocusedBorderColor = ComposeColor.Transparent
-                                )
+                                colors = contentBoxColors
                             )
                         }
                         else -> {
@@ -980,12 +901,7 @@ fun GenerateQrScreen(
                                     }
                                 ),
                                 shape = RoundedCornerShape(20.dp),
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedContainerColor = containerBgColor,
-                                    unfocusedContainerColor = containerBgColor,
-                                    focusedBorderColor = androidx.compose.material3.MaterialTheme.colorScheme.primary,
-                                    unfocusedBorderColor = ComposeColor.Transparent
-                                )
+                                colors = contentBoxColors
                             )
                             if (type == "WIFI") {
                                 Spacer(modifier = Modifier.height(12.dp))
@@ -996,12 +912,7 @@ fun GenerateQrScreen(
                                     singleLine = true,
                                     modifier = Modifier.fillMaxWidth(),
                                     shape = RoundedCornerShape(20.dp),
-                                    colors = OutlinedTextFieldDefaults.colors(
-                                        focusedContainerColor = containerBgColor,
-                                        unfocusedContainerColor = containerBgColor,
-                                        focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                        unfocusedBorderColor = ComposeColor.Transparent
-                                    )
+                                    colors = contentBoxColors
                                 )
                             }
                         }
@@ -1025,21 +936,34 @@ fun GenerateQrScreen(
                         contentAlignment = Alignment.Center
                     ) {
                         bitmap?.let { b ->
-                            val isPoster = selectedTemplateId?.endsWith("_poster") == true
-                            val previewCornerPercent = (bgRadius * 50).coerceIn(0f, 50f).toInt()
-                            val previewShape = RoundedCornerShape(percent = previewCornerPercent)
-                            Card(
-                                modifier = if (isPoster) Modifier.fillMaxWidth(0.85f).wrapContentHeight() else Modifier.size(220.dp),
-                                shape = if (isPoster) RoundedCornerShape(0.dp) else previewShape,
-                                elevation = CardDefaults.cardElevation(defaultElevation = if (isPoster) 0.dp else if (previewCornerPercent > 0) 4.dp else 2.dp),
-                                colors = CardDefaults.cardColors(containerColor = ComposeColor.Transparent)
-                            ) {
+                            val isFramed = selectedFrameStyle != QrFrameStyle.NONE
+                            if (isFramed) {
                                 Image(
                                     bitmap = b.asImageBitmap(),
                                     contentDescription = "Live Generated QR",
-                                    modifier = Modifier.fillMaxSize(),
+                                    modifier = Modifier
+                                        .fillMaxHeight(0.95f)
+                                        .aspectRatio(b.width.toFloat() / b.height.toFloat()),
                                     contentScale = ContentScale.Fit
                                 )
+                            } else {
+                                val previewCornerPercent = (bgRadius * 50).coerceIn(0f, 50f).toInt()
+                                val previewShape = RoundedCornerShape(percent = previewCornerPercent)
+                                Card(
+                                    modifier = Modifier.size(220.dp),
+                                    shape = previewShape,
+                                    elevation = CardDefaults.cardElevation(
+                                        defaultElevation = if (previewCornerPercent > 0) 4.dp else 2.dp
+                                    ),
+                                    colors = CardDefaults.cardColors(containerColor = ComposeColor.Transparent)
+                                ) {
+                                    Image(
+                                        bitmap = b.asImageBitmap(),
+                                        contentDescription = "Live Generated QR",
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentScale = ContentScale.Fit
+                                    )
+                                }
                             }
                         } ?: run {
                             Box(modifier = Modifier.size(220.dp))
@@ -1063,65 +987,93 @@ fun GenerateQrScreen(
 
                         // Tabs Section at top of sheet
                         Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 16.dp, vertical = 12.dp)
-                                    .horizontalScroll(rememberScrollState()),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                QrCustomizationTab.values().forEach { tab ->
-                                    val isSelected = selectedCustomizationTab == tab
-                                    val tabText = when (tab) {
-                                        QrCustomizationTab.TEST -> {
-                                            when (testStatus) {
-                                                QrTestStatus.PASSED -> "Test ✓"
-                                                QrTestStatus.FAILED -> "Test ⚠️"
-                                                else -> "Test"
-                                            }
-                                        }
-                                        else -> tab.title
-                                    }
-                                    Surface(
-                                        onClick = { selectedCustomizationTab = tab },
-                                        shape = CircleShape,
-                                        color = if (isSelected) MaterialTheme.colorScheme.primary else (if (isDark) ComposeColor(0xFF353535) else ComposeColor.White),
-                                        border = if (isSelected) null else BorderStroke(1.dp, if (isDark) ComposeColor.White.copy(alpha = 0.15f) else ComposeColor.Black.copy(alpha = 0.08f)),
-                                        modifier = Modifier.height(36.dp)
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState())
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            QrCustomizationTab.values().forEach { tab ->
+                                val isSelected = selectedCustomizationTab == tab
+                                val isPassed = tab == QrCustomizationTab.TEST && testStatus == QrTestStatus.PASSED
+                                val isFailed = tab == QrCustomizationTab.TEST && testStatus == QrTestStatus.FAILED
+
+                                val pillColor = if (isSelected) {
+                                    if (isPassed) ComposeColor(0xFF2E7D32)
+                                    else if (isFailed) ComposeColor(0xFFC62828)
+                                    else MaterialTheme.colorScheme.primary
+                                } else {
+                                    if (isDark) ComposeColor(0xFF353535) else ComposeColor.White
+                                }
+
+                                val pillBorder = if (isSelected) {
+                                    null
+                                } else {
+                                    if (isPassed) BorderStroke(1.dp, ComposeColor(0xFF4CAF50).copy(alpha = 0.5f))
+                                    else if (isFailed) BorderStroke(1.dp, ComposeColor(0xFFE53935).copy(alpha = 0.5f))
+                                    else BorderStroke(1.dp, if (isDark) ComposeColor.White.copy(alpha = 0.15f) else ComposeColor.Black.copy(alpha = 0.08f))
+                                }
+
+                                val contentColor = if (isSelected) {
+                                    ComposeColor.White
+                                } else {
+                                    if (isPassed) ComposeColor(0xFF4CAF50)
+                                    else if (isFailed) ComposeColor(0xFFE53935)
+                                    else textColor.copy(alpha = 0.7f)
+                                }
+
+                                Surface(
+                                    onClick = { selectedCustomizationTab = tab },
+                                    shape = CircleShape,
+                                    color = pillColor,
+                                    border = pillBorder,
+                                    modifier = Modifier.height(36.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 18.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                                     ) {
-                                        Box(
-                                            modifier = Modifier.padding(horizontal = 20.dp),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Text(
-                                                text = tabText,
-                                                style = MaterialTheme.typography.labelLarge,
-                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                                color = if (isSelected) MaterialTheme.colorScheme.onPrimary else (
-                                                    if (tab == QrCustomizationTab.TEST && testStatus == QrTestStatus.PASSED) ComposeColor(0xFF4CAF50)
-                                                    else if (tab == QrCustomizationTab.TEST && testStatus == QrTestStatus.FAILED) ComposeColor(0xFFE53935)
-                                                    else textColor.copy(alpha = 0.7f)
-                                                )
+                                        if (isPassed) {
+                                            Icon(
+                                                imageVector = Icons.Rounded.Check,
+                                                contentDescription = "Passed",
+                                                modifier = Modifier.size(16.dp),
+                                                tint = contentColor
+                                            )
+                                        } else if (isFailed) {
+                                            Icon(
+                                                imageVector = Icons.Rounded.Close,
+                                                contentDescription = "Failed",
+                                                modifier = Modifier.size(16.dp),
+                                                tint = contentColor
                                             )
                                         }
+                                        Text(
+                                            text = tab.title,
+                                            style = MaterialTheme.typography.labelLarge,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                            color = contentColor
+                                        )
                                     }
                                 }
                             }
+                        }
 
-                            // Divider between the tabs and the tabs contents section
+                        // Divider between the tabs and the tabs contents section
                             HorizontalDivider(
                                 modifier = Modifier.fillMaxWidth(),
                                 thickness = 1.dp,
                                 color = dividerColor
                             )
 
-                            // Scrollable options section with solid height
+                            // Scrollable options section with transparent background
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .weight(1f)
                                     .verticalScroll(rememberScrollState())
-                                    .navigationBarsPadding()
                                     .padding(vertical = 14.dp)
                             ) {
                                 when (selectedCustomizationTab) {
@@ -1194,7 +1146,10 @@ fun GenerateQrScreen(
                                             }
                                             Slider(
                                                 value = eyeRadius,
-                                                onValueChange = { eyeRadius = it },
+                                                onValueChange = { 
+                                                    eyeRadius = it
+                                                    selectedEyeShape = QrEyeShape.DEFAULT
+                                                },
                                                 valueRange = 0f..1f,
                                                 colors = SliderDefaults.colors(
                                                     thumbColor = MaterialTheme.colorScheme.primary,
@@ -1230,7 +1185,10 @@ fun GenerateQrScreen(
                                             }
                                             Slider(
                                                 value = pixelRadius,
-                                                onValueChange = { pixelRadius = it },
+                                                onValueChange = { 
+                                                    pixelRadius = it
+                                                    selectedPixelShape = QrPixelShape.DEFAULT
+                                                },
                                                 valueRange = 0f..1f,
                                                 colors = SliderDefaults.colors(
                                                     thumbColor = MaterialTheme.colorScheme.primary,
@@ -1246,19 +1204,34 @@ fun GenerateQrScreen(
                                             )
 
                                             // Surface Radius
+                                            val isFrameActive = selectedFrameStyle != QrFrameStyle.NONE
                                             Row(
-                                                modifier = Modifier.fillMaxWidth(),
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .alpha(if (isFrameActive) 0.38f else 1f),
                                                 horizontalArrangement = Arrangement.SpaceBetween,
                                                 verticalAlignment = Alignment.CenterVertically
                                             ) {
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                ) {
+                                                    Text(
+                                                        text = "Surface Radius",
+                                                        style = MaterialTheme.typography.titleMedium,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = textColor
+                                                    )
+                                                    if (isFrameActive) {
+                                                        Text(
+                                                            text = "(Frame Active)",
+                                                            style = MaterialTheme.typography.labelSmall,
+                                                            color = textColor.copy(alpha = 0.5f)
+                                                        )
+                                                    }
+                                                }
                                                 Text(
-                                                    text = "Surface Radius",
-                                                    style = MaterialTheme.typography.titleMedium,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = textColor
-                                                )
-                                                Text(
-                                                    text = "${(bgRadius * 100).toInt()}%",
+                                                    text = if (isFrameActive) "N/A" else "${(bgRadius * 100).toInt()}%",
                                                     style = MaterialTheme.typography.bodyMedium,
                                                     fontWeight = FontWeight.SemiBold,
                                                     color = textColor.copy(alpha = 0.6f)
@@ -1266,14 +1239,387 @@ fun GenerateQrScreen(
                                             }
                                             Slider(
                                                 value = bgRadius,
-                                                onValueChange = { bgRadius = it },
+                                                onValueChange = { if (!isFrameActive) bgRadius = it },
+                                                enabled = !isFrameActive,
                                                 valueRange = 0f..1f,
                                                 colors = SliderDefaults.colors(
-                                                    thumbColor = MaterialTheme.colorScheme.primary,
-                                                    activeTrackColor = MaterialTheme.colorScheme.primary,
+                                                    thumbColor = if (isFrameActive) textColor.copy(alpha = 0.3f) else MaterialTheme.colorScheme.primary,
+                                                    activeTrackColor = if (isFrameActive) textColor.copy(alpha = 0.2f) else MaterialTheme.colorScheme.primary,
                                                     inactiveTrackColor = if (isDark) ComposeColor.White.copy(alpha = 0.15f) else ComposeColor.Black.copy(alpha = 0.1f)
-                                                )
+                                                ),
+                                                modifier = Modifier.alpha(if (isFrameActive) 0.38f else 1f)
                                             )
+                                        }
+                                    }
+
+                                    QrCustomizationTab.LOGO -> {
+                                        Column(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                                        ) {
+                                            // 1. Logo Shape Selection
+                                            Text(
+                                                text = "Logo Shape",
+                                                style = MaterialTheme.typography.titleMedium,
+                                                fontWeight = FontWeight.Bold,
+                                                color = textColor,
+                                                modifier = Modifier.padding(horizontal = 20.dp)
+                                            )
+
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(horizontal = 20.dp),
+                                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                            ) {
+                                                com.app.qrkit.ui.components.QrLogoShape.values().forEach { shapeItem ->
+                                                    val isShapeSelected = selectedLogoShape == shapeItem
+                                                    val shapeCorner = when (shapeItem) {
+                                                        com.app.qrkit.ui.components.QrLogoShape.SHARP -> RoundedCornerShape(0.dp)
+                                                        com.app.qrkit.ui.components.QrLogoShape.ROUNDED -> RoundedCornerShape(4.dp)
+                                                        com.app.qrkit.ui.components.QrLogoShape.CIRCLE -> CircleShape
+                                                    }
+                                                    Surface(
+                                                        onClick = { selectedLogoShape = shapeItem },
+                                                        shape = RoundedCornerShape(16.dp),
+                                                        color = if (isShapeSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                                                                else if (isDark) ComposeColor(0xFF222222) else ComposeColor(0xFFF6F6F7),
+                                                        border = BorderStroke(
+                                                            width = if (isShapeSelected) 2.dp else 1.dp,
+                                                            color = if (isShapeSelected) MaterialTheme.colorScheme.primary
+                                                                    else if (isDark) ComposeColor.White.copy(alpha = 0.1f) else ComposeColor.Black.copy(alpha = 0.08f)
+                                                        ),
+                                                        modifier = Modifier.weight(1f).height(46.dp)
+                                                    ) {
+                                                        Row(
+                                                            modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp),
+                                                            verticalAlignment = Alignment.CenterVertically,
+                                                            horizontalArrangement = Arrangement.Center
+                                                        ) {
+                                                            Box(
+                                                                modifier = Modifier
+                                                                    .size(16.dp)
+                                                                    .clip(shapeCorner)
+                                                                    .background(if (isShapeSelected) MaterialTheme.colorScheme.primary else textColor.copy(alpha = 0.6f))
+                                                            )
+                                                            Spacer(modifier = Modifier.width(8.dp))
+                                                            Text(
+                                                                text = shapeItem.title,
+                                                                style = MaterialTheme.typography.labelMedium,
+                                                                fontWeight = if (isShapeSelected) FontWeight.Bold else FontWeight.Medium,
+                                                                color = if (isShapeSelected) MaterialTheme.colorScheme.primary else textColor.copy(alpha = 0.85f)
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                            }
+
+                                            HorizontalDivider(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(horizontal = 20.dp),
+                                                thickness = 1.dp,
+                                                color = dividerColor
+                                            )
+
+                                            // 2. Preset Icons
+                                            Text(
+                                                text = "Preset Icons",
+                                                style = MaterialTheme.typography.titleMedium,
+                                                fontWeight = FontWeight.Bold,
+                                                color = textColor,
+                                                modifier = Modifier.padding(horizontal = 20.dp)
+                                            )
+
+                                            val logoOptions = QrDesignRenderer.availableLogos
+
+                                            LazyRow(
+                                                contentPadding = PaddingValues(horizontal = 20.dp),
+                                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                items(logoOptions) { (id, label, iconRes) ->
+                                                    val isSelected = selectedLogo == id
+                                                    Surface(
+                                                        onClick = { selectedLogo = id },
+                                                        shape = RoundedCornerShape(16.dp),
+                                                        color = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                                                                else if (isDark) ComposeColor(0xFF222222) else ComposeColor(0xFFF6F6F7),
+                                                        border = BorderStroke(
+                                                            width = if (isSelected) 2.dp else 1.dp,
+                                                            color = if (isSelected) MaterialTheme.colorScheme.primary
+                                                                    else if (isDark) ComposeColor.White.copy(alpha = 0.1f) else ComposeColor.Black.copy(alpha = 0.08f)
+                                                        ),
+                                                        modifier = Modifier
+                                                            .width(80.dp)
+                                                            .height(82.dp)
+                                                    ) {
+                                                        Column(
+                                                            modifier = Modifier
+                                                                .fillMaxSize()
+                                                                .padding(6.dp),
+                                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                                            verticalArrangement = Arrangement.Center
+                                                        ) {
+                                                            if (iconRes != null) {
+                                                                Image(
+                                                                    painter = painterResource(id = iconRes),
+                                                                    contentDescription = label,
+                                                                    modifier = Modifier.size(28.dp)
+                                                                )
+                                                            } else {
+                                                                Icon(
+                                                                    imageVector = Icons.Rounded.Block,
+                                                                    contentDescription = "None",
+                                                                    tint = textColor.copy(alpha = 0.6f),
+                                                                    modifier = Modifier.size(28.dp)
+                                                                )
+                                                            }
+                                                            Spacer(modifier = Modifier.height(4.dp))
+                                                            Text(
+                                                                text = label,
+                                                                style = MaterialTheme.typography.labelSmall,
+                                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                                                color = if (isSelected) MaterialTheme.colorScheme.primary else textColor.copy(alpha = 0.85f),
+                                                                maxLines = 1
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    QrCustomizationTab.FRAME -> {
+                                        Column(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                                        ) {
+                                            // 1. Frame Style Selector Title
+                                            Text(
+                                                text = "Frame Style",
+                                                style = MaterialTheme.typography.titleMedium,
+                                                fontWeight = FontWeight.Bold,
+                                                color = textColor,
+                                                modifier = Modifier.padding(horizontal = 20.dp)
+                                            )
+
+                                            // Horizontal Row of Frame Options (generator excludes the 5 new template styles)
+                                            val frameStyles = listOf(
+                                                QrFrameStyle.NONE,
+                                                QrFrameStyle.BOTTOM_BANNER,
+                                                QrFrameStyle.SMARTPHONE,
+                                                QrFrameStyle.HEADER_BADGE,
+                                                QrFrameStyle.SPEECH_BUBBLE,
+                                                QrFrameStyle.TICKET,
+                                                QrFrameStyle.RETRO
+                                            )
+
+                                            LazyRow(
+                                                contentPadding = PaddingValues(horizontal = 20.dp),
+                                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                items(frameStyles) { style ->
+                                                    val isSelected = selectedFrameStyle == style
+                                                    Surface(
+                                                        onClick = {
+                                                            selectedFrameStyle = style
+                                                            if (style != QrFrameStyle.NONE && frameCtaText.isBlank()) {
+                                                                frameCtaText = style.defaultText
+                                                            }
+                                                        },
+                                                        shape = RoundedCornerShape(16.dp),
+                                                        color = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                                                                else if (isDark) ComposeColor(0xFF222222) else ComposeColor(0xFFF6F6F7),
+                                                        border = BorderStroke(
+                                                            width = if (isSelected) 2.dp else 1.dp,
+                                                            color = if (isSelected) MaterialTheme.colorScheme.primary
+                                                                    else if (isDark) ComposeColor.White.copy(alpha = 0.1f) else ComposeColor.Black.copy(alpha = 0.08f)
+                                                        ),
+                                                        modifier = Modifier.width(96.dp).height(80.dp)
+                                                    ) {
+                                                        Column(
+                                                            modifier = Modifier
+                                                                .fillMaxSize()
+                                                                .padding(8.dp),
+                                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                                            verticalArrangement = Arrangement.Center
+                                                        ) {
+                                                            Icon(
+                                                                imageVector = when (style) {
+                                                                    QrFrameStyle.NONE -> Icons.Rounded.Block
+                                                                    QrFrameStyle.BOTTOM_BANNER -> Icons.Rounded.CropPortrait
+                                                                    QrFrameStyle.SMARTPHONE -> Icons.Rounded.Smartphone
+                                                                    QrFrameStyle.HEADER_BADGE -> Icons.Rounded.Badge
+                                                                    QrFrameStyle.SPEECH_BUBBLE -> Icons.Rounded.ChatBubbleOutline
+                                                                    QrFrameStyle.TICKET -> Icons.Rounded.ConfirmationNumber
+                                                                    QrFrameStyle.RETRO -> Icons.Rounded.FilterFrames
+                                                                    QrFrameStyle.POLAROID -> Icons.Rounded.PhotoCamera
+                                                                    QrFrameStyle.MINIMAL_BORDER -> Icons.Rounded.CropFree
+                                                                    QrFrameStyle.NEON_CYBER -> Icons.Rounded.Bolt
+                                                                    QrFrameStyle.ELEGANT_RIBBON -> Icons.Rounded.Bookmark
+                                                                    QrFrameStyle.COFFEE_SHOP -> Icons.Rounded.Coffee
+                                                                },
+                                                                contentDescription = style.title,
+                                                                tint = if (isSelected) MaterialTheme.colorScheme.primary else textColor.copy(alpha = 0.7f),
+                                                                modifier = Modifier.size(26.dp)
+                                                            )
+                                                            Spacer(modifier = Modifier.height(6.dp))
+                                                            Text(
+                                                                text = style.title,
+                                                                style = MaterialTheme.typography.labelSmall,
+                                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                                                color = if (isSelected) MaterialTheme.colorScheme.primary else textColor.copy(alpha = 0.85f),
+                                                                maxLines = 1
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                            }
+
+                                            if (selectedFrameStyle != QrFrameStyle.NONE) {
+                                                HorizontalDivider(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .padding(horizontal = 20.dp),
+                                                    thickness = 1.dp,
+                                                    color = dividerColor
+                                                )
+
+                                                // 2. Banner Text Input
+                                                Column(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                                ) {
+                                                    Text(
+                                                        text = "Banner Text (Call to Action)",
+                                                        style = MaterialTheme.typography.titleMedium,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = textColor,
+                                                        modifier = Modifier.padding(horizontal = 20.dp)
+                                                    )
+
+                                                    OutlinedTextField(
+                                                        value = frameCtaText,
+                                                        onValueChange = { frameCtaText = it },
+                                                        placeholder = { Text("e.g. SCAN ME, CONNECT TO WI-FI") },
+                                                        singleLine = true,
+                                                        modifier = Modifier
+                                                            .fillMaxWidth()
+                                                            .padding(horizontal = 20.dp),
+                                                        shape = RoundedCornerShape(14.dp),
+                                                        colors = contentBoxColors
+                                                    )
+
+                                                    // Quick Preset Chips
+                                                    val presetChips = listOf(
+                                                        "SCAN ME",
+                                                        "CONNECT TO WI-FI",
+                                                        "PAY HERE",
+                                                        "FOLLOW US",
+                                                        "VIEW MENU",
+                                                        "SAVE CONTACT",
+                                                        "VISIT WEBSITE"
+                                                    )
+
+                                                    LazyRow(
+                                                        contentPadding = PaddingValues(horizontal = 20.dp),
+                                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                        modifier = Modifier
+                                                            .fillMaxWidth()
+                                                            .padding(top = 4.dp)
+                                                    ) {
+                                                        items(presetChips) { chipText ->
+                                                            val isChipActive = frameCtaText.equals(chipText, ignoreCase = true)
+                                                            Surface(
+                                                                onClick = { frameCtaText = chipText },
+                                                                shape = CircleShape,
+                                                                color = if (isChipActive) MaterialTheme.colorScheme.primary else (if (isDark) ComposeColor(0xFF2C2C2C) else ComposeColor(0xFFEEEEEE)),
+                                                                border = if (isChipActive) null else BorderStroke(1.dp, if (isDark) ComposeColor.White.copy(alpha = 0.1f) else ComposeColor.Black.copy(alpha = 0.08f)),
+                                                                modifier = Modifier.height(32.dp)
+                                                            ) {
+                                                                Box(
+                                                                    modifier = Modifier.padding(horizontal = 14.dp),
+                                                                    contentAlignment = Alignment.Center
+                                                                ) {
+                                                                    Text(
+                                                                        text = chipText,
+                                                                        fontSize = 12.sp,
+                                                                        fontWeight = if (isChipActive) FontWeight.Bold else FontWeight.Medium,
+                                                                        color = if (isChipActive) MaterialTheme.colorScheme.onPrimary else textColor.copy(alpha = 0.8f)
+                                                                    )
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+
+                                                HorizontalDivider(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .padding(horizontal = 20.dp),
+                                                    thickness = 1.dp,
+                                                    color = dividerColor
+                                                )
+
+                                                // 3. Frame Color Palette
+                                                Column(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                                                ) {
+                                                    Text(
+                                                        text = "Frame Color",
+                                                        style = MaterialTheme.typography.titleMedium,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = textColor,
+                                                        modifier = Modifier.padding(horizontal = 20.dp)
+                                                    )
+
+                                                    val frameColors = listOf(
+                                                        pixelColor to "QR Color",
+                                                        ComposeColor(0xFF111827) to "Black",
+                                                        ComposeColor(0xFF2563EB) to "Blue",
+                                                        ComposeColor(0xFF059669) to "Emerald",
+                                                        ComposeColor(0xFFDC2626) to "Crimson",
+                                                        ComposeColor(0xFF7C3AED) to "Violet",
+                                                        ComposeColor(0xFFD97706) to "Amber",
+                                                        ComposeColor(0xFF0D9488) to "Teal"
+                                                    )
+
+                                                    LazyRow(
+                                                        contentPadding = PaddingValues(horizontal = 20.dp),
+                                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                                        modifier = Modifier.fillMaxWidth()
+                                                    ) {
+                                                        items(frameColors) { (col, _) ->
+                                                            val isColSelected = frameColor == col
+                                                            Box(
+                                                                modifier = Modifier
+                                                                    .size(42.dp)
+                                                                    .clip(CircleShape)
+                                                                    .background(col)
+                                                                    .border(
+                                                                        width = if (isColSelected) 3.dp else 1.dp,
+                                                                        color = if (isColSelected) MaterialTheme.colorScheme.primary else ComposeColor.White.copy(alpha = 0.3f),
+                                                                        shape = CircleShape
+                                                                    )
+                                                                    .clickable { frameColor = col },
+                                                                contentAlignment = Alignment.Center
+                                                            ) {
+                                                                if (isColSelected) {
+                                                                    Icon(
+                                                                        imageVector = Icons.Rounded.Check,
+                                                                        contentDescription = "Selected",
+                                                                        tint = if (androidx.core.graphics.ColorUtils.calculateLuminance(col.toArgb()) > 0.5) ComposeColor.Black else ComposeColor.White,
+                                                                        modifier = Modifier.size(20.dp)
+                                                                    )
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            Spacer(modifier = Modifier.height(16.dp))
                                         }
                                     }
                                     QrCustomizationTab.TEST -> {
@@ -1690,6 +2036,7 @@ fun GenerateQrScreen(
                                         }
                                     }
                                 }
+                                Spacer(modifier = Modifier.navigationBarsPadding())
                             }
                         }
                     }
@@ -1720,7 +2067,7 @@ fun GenerateQrScreen(
 }
 
 @Composable
-private fun ColorSettingRow(
+fun ColorSettingRow(
     title: String,
     color: ComposeColor,
     textColor: ComposeColor,

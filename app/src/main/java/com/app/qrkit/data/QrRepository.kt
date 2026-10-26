@@ -2,7 +2,9 @@ package com.app.qrkit.data
 
 import kotlinx.coroutines.flow.Flow
 
-class QrRepository(private val qrDao: QrDao) {
+class QrRepository(
+    private val qrDao: QrDao
+) {
     val allQrCodes: Flow<List<QrCode>> = qrDao.getAllQrCodes()
     val allCategories: Flow<List<QrCategory>> = qrDao.getAllCategories()
 

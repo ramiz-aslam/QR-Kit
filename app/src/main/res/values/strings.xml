@@ -1,3 +1,10 @@
 <resources>
     <string name="app_name">QR Kit</string>
+    <string name="shortcut_scan_short">Scan</string>
+    <string name="shortcut_scan_long">Scan QR Code</string>
+    <string name="shortcut_create_short">Create</string>
+    <string name="shortcut_create_long">Create QR Code</string>
+    <string name="widget_name">QR Kit Quick Actions</string>
+    <string name="widget_description">Quick 1-tap shortcuts to scan or create QR codes</string>
+    <string name="quick_scan_tile_label">Scan QR</string>
 </resources>

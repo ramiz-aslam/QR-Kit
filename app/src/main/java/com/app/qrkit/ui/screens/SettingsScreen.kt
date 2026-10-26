@@ -1,6 +1,7 @@
 package com.app.qrkit.ui.screens
 
 import android.content.Context
+import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -58,6 +59,37 @@ fun SettingsScreen(viewModel: QrViewModel, onBackClick: () -> Unit, onNavigate: 
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     var showClearDialog by remember { mutableStateOf(false) }
+    var showTileGuideDialog by remember { mutableStateOf(false) }
+
+    if (showTileGuideDialog) {
+        AlertDialog(
+            onDismissRequest = { showTileGuideDialog = false },
+            title = {
+                Text(
+                    text = "Add 'Scan QR' Tile",
+                    fontWeight = FontWeight.Bold,
+                    color = textColor
+                )
+            },
+            text = {
+                Text(
+                    text = "1. Swipe down twice from the top of your screen to open Quick Settings.\n\n" +
+                            "2. Tap the pencil / edit icon (✏️).\n\n" +
+                            "3. Scroll down to find 'Scan QR' and drag it up into your active tiles.\n\n" +
+                            "Now you can launch the scanner from anywhere on your phone with one tap!",
+                    color = textColor.copy(alpha = 0.85f),
+                    lineHeight = 22.sp,
+                    fontSize = 14.sp
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { showTileGuideDialog = false }) {
+                    Text("Got It", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                }
+            },
+            containerColor = if (isDark) Color(0xFF1E1E1E) else Color.White
+        )
+    }
 
     var lastNavClickTime by remember { mutableStateOf(0L) }
     val safeNavigate = { route: String ->
@@ -213,6 +245,50 @@ fun SettingsScreen(viewModel: QrViewModel, onBackClick: () -> Unit, onNavigate: 
                 )
             }
             
+            item {
+                SettingsDivider()
+                SettingsSectionTitle("Quick Access")
+                SettingsItem(
+                    icon = QrCodeScannerIcon,
+                    title = "Quick Settings Tile", 
+                    subtitle = "Scan instantly from the notification panel",
+                    trailing = {
+                        TextButton(
+                            onClick = {
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                    val sbm = context.getSystemService(android.app.StatusBarManager::class.java)
+                                    val comp = android.content.ComponentName(context, com.app.qrkit.service.QuickScanTileService::class.java)
+                                    sbm?.requestAddTileService(
+                                        comp,
+                                        context.getString(com.app.qrkit.R.string.quick_scan_tile_label),
+                                        android.graphics.drawable.Icon.createWithResource(context, com.app.qrkit.R.drawable.ic_shortcut_scan),
+                                        context.mainExecutor
+                                    ) { _ -> }
+                                } else {
+                                    showTileGuideDialog = true
+                                }
+                            }
+                        ) {
+                            Text("Add", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                        }
+                    },
+                    onClick = {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            val sbm = context.getSystemService(android.app.StatusBarManager::class.java)
+                            val comp = android.content.ComponentName(context, com.app.qrkit.service.QuickScanTileService::class.java)
+                            sbm?.requestAddTileService(
+                                comp,
+                                context.getString(com.app.qrkit.R.string.quick_scan_tile_label),
+                                android.graphics.drawable.Icon.createWithResource(context, com.app.qrkit.R.drawable.ic_shortcut_scan),
+                                context.mainExecutor
+                            ) { _ -> }
+                        } else {
+                            showTileGuideDialog = true
+                        }
+                    }
+                )
+            }
+
             item {
                 SettingsDivider()
                 SettingsSectionTitle("Data & Privacy")

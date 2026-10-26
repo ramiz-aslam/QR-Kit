@@ -22,7 +22,7 @@ fun CustomAlertDialog(
     title: String,
     message: String,
     confirmText: String,
-    dismissText: String = "Cancel",
+    dismissText: String? = "Cancel",
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
     isDestructive: Boolean = true,
@@ -70,29 +70,46 @@ fun CustomAlertDialog(
                 
                 Spacer(modifier = Modifier.height(24.dp))
                 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Button(
-                        onClick = onDismiss,
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(52.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = buttonBg,
-                            contentColor = cancelTextColor
-                        ),
-                        shape = CircleShape,
-                        elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp)
+                if (dismissText != null) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Text(dismissText, fontWeight = FontWeight.Bold)
+                        Button(
+                            onClick = onDismiss,
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(52.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = buttonBg,
+                                contentColor = cancelTextColor
+                            ),
+                            shape = CircleShape,
+                            elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp)
+                        ) {
+                            Text(dismissText, fontWeight = FontWeight.Bold)
+                        }
+                        
+                        Button(
+                            onClick = onConfirm,
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(52.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = buttonBg,
+                                contentColor = confirmTextColor
+                            ),
+                            shape = CircleShape,
+                            elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp)
+                        ) {
+                            Text(confirmText, fontWeight = FontWeight.Bold)
+                        }
                     }
-                    
+                } else {
                     Button(
                         onClick = onConfirm,
                         modifier = Modifier
-                            .weight(1f)
+                            .fillMaxWidth()
                             .height(52.dp),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = buttonBg,

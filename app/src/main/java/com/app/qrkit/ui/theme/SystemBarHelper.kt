@@ -35,15 +35,19 @@ fun Activity.setSystemBars(
     darkNavigationIcons: Boolean = darkStatusIcons
 ) {
     if (this is ComponentActivity) {
+        val statusStyle = if (darkStatusIcons) {
+            SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT)
+        } else {
+            SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+        }
+        val navStyle = if (darkNavigationIcons) {
+            SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT)
+        } else {
+            SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+        }
         enableEdgeToEdge(
-            statusBarStyle = SystemBarStyle.auto(
-                android.graphics.Color.TRANSPARENT,
-                android.graphics.Color.TRANSPARENT
-            ) { !darkStatusIcons },
-            navigationBarStyle = SystemBarStyle.auto(
-                android.graphics.Color.TRANSPARENT,
-                android.graphics.Color.TRANSPARENT
-            ) { !darkNavigationIcons }
+            statusBarStyle = statusStyle,
+            navigationBarStyle = navStyle
         )
     }
 

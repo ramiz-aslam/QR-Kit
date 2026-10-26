@@ -37,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.app.qrkit.data.QrCode
+import com.app.qrkit.data.isFramed
 import com.app.qrkit.ui.QrViewModel
 import com.app.qrkit.ui.icons.*
 import kotlinx.coroutines.CoroutineScope
@@ -417,29 +418,71 @@ fun SharedTransitionScope.VaultScreen(
                                     }
                                 }
 
-                                val cornerPercent = (qr.bgRadius * 50).coerceIn(0f, 50f).toInt()
-                                val qrShape = RoundedCornerShape(percent = cornerPercent)
-                                val qrBgColor = Color(qr.bgColor)
-                                Box(
-                                    modifier = Modifier
-                                        .size(70.dp)
-                                        .sharedElement(
-                                            sharedContentState = rememberSharedContentState(key = "qr_${qr.id}"),
-                                            animatedVisibilityScope = animatedVisibilityScope,
-                                            clipInOverlayDuringTransition = OverlayClip(qrShape)
-                                        )
-                                        .clip(qrShape)
-                                        .background(qrBgColor),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    if (qr.imagePath.isNotBlank()) {
-                                        val imgFile = if (qr.imagePath.startsWith("/")) File(qr.imagePath) else File(context.filesDir, qr.imagePath)
-                                        AsyncImage(
-                                            model = imgFile,
-                                            contentDescription = "QR Code",
-                                            modifier = Modifier.fillMaxSize(),
-                                            contentScale = ContentScale.Fit
-                                        )
+                                val isFramed = qr.isFramed(context)
+                                if (isFramed) {
+                                    Box(
+                                        modifier = Modifier
+                                            .height(72.dp)
+                                            .aspectRatio(600f / 740f)
+                                            .sharedElement(
+                                                sharedContentState = rememberSharedContentState(key = "qr_${qr.id}"),
+                                                animatedVisibilityScope = animatedVisibilityScope
+                                            ),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        if (qr.imagePath.isNotBlank()) {
+                                            val imgFile = remember(qr.imagePath) {
+                                                if (qr.imagePath.startsWith("/")) File(qr.imagePath) else File(context.filesDir, qr.imagePath)
+                                            }
+                                            val imageRequest = remember(imgFile) {
+                                                coil.request.ImageRequest.Builder(context)
+                                                    .data(imgFile)
+                                                    .crossfade(false)
+                                                    .allowHardware(true)
+                                                    .build()
+                                            }
+                                            AsyncImage(
+                                                model = imageRequest,
+                                                contentDescription = "QR Code",
+                                                modifier = Modifier.fillMaxSize(),
+                                                contentScale = ContentScale.Fit
+                                            )
+                                        }
+                                    }
+                                } else {
+                                    val cornerPercent = (qr.bgRadius * 50).coerceIn(0f, 50f).toInt()
+                                    val qrShape = remember(cornerPercent) { RoundedCornerShape(percent = cornerPercent) }
+                                    val qrBgColor = Color(qr.bgColor)
+                                    Box(
+                                        modifier = Modifier
+                                            .size(70.dp)
+                                            .sharedElement(
+                                                sharedContentState = rememberSharedContentState(key = "qr_${qr.id}"),
+                                                animatedVisibilityScope = animatedVisibilityScope,
+                                                clipInOverlayDuringTransition = OverlayClip(qrShape)
+                                            )
+                                            .clip(qrShape)
+                                            .background(qrBgColor),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        if (qr.imagePath.isNotBlank()) {
+                                            val imgFile = remember(qr.imagePath) {
+                                                if (qr.imagePath.startsWith("/")) File(qr.imagePath) else File(context.filesDir, qr.imagePath)
+                                            }
+                                            val imageRequest = remember(imgFile) {
+                                                coil.request.ImageRequest.Builder(context)
+                                                    .data(imgFile)
+                                                    .crossfade(false)
+                                                    .allowHardware(true)
+                                                    .build()
+                                            }
+                                            AsyncImage(
+                                                model = imageRequest,
+                                                contentDescription = "QR Code",
+                                                modifier = Modifier.fillMaxSize(),
+                                                contentScale = ContentScale.Fit
+                                            )
+                                        }
                                     }
                                 }
 

@@ -7,4 +7,12 @@
     <color name="teal_700">#FF018786</color>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+    
+    <!-- Widget Colors -->
+    <color name="widget_bg_color">#FFFFFFFF</color>
+    <color name="widget_stroke_color">#18000000</color>
+    <color name="widget_button_bg_color">#FFF2F2F4</color>
+    <color name="widget_text_color">#FF111111</color>
+    <color name="widget_text_secondary">#FF777777</color>
+    <color name="widget_icon_tint">#FF111111</color>
 </resources>

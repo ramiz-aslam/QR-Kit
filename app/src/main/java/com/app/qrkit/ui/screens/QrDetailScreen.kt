@@ -41,7 +41,11 @@ import com.app.qrkit.ui.icons.*
 import java.io.File
 import androidx.compose.ui.layout.ContentScale
 import androidx.core.content.FileProvider
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 import com.app.qrkit.data.QrCode
+import com.app.qrkit.data.isFramed
 
 private val QrCardShape = RoundedCornerShape(12.dp)
 
@@ -97,6 +101,7 @@ fun SharedTransitionScope.QrDetailScreen(
     var qr by remember { mutableStateOf<QrCode?>(null) }
     var showInfoSheet by remember { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val coroutineScope = rememberCoroutineScope()
     
     val context = LocalContext.current
     val isDark = com.app.qrkit.ui.theme.isAppInDarkTheme()
@@ -210,28 +215,36 @@ fun SharedTransitionScope.QrDetailScreen(
                             com.app.qrkit.ui.components.ScaleOnPressFilledIconButton(
                                 onClick = {
                                     qr?.let { q ->
-                                        val file = if (q.imagePath.startsWith("/")) File(q.imagePath) else File(context.filesDir, q.imagePath)
-                                        if (file.exists()) {
-                                            try {
-                                                val bitmap = android.graphics.BitmapFactory.decodeFile(file.absolutePath)
-                                                if (bitmap != null) {
-                                                    val contentValues = android.content.ContentValues().apply {
-                                                        put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, "QR_${System.currentTimeMillis()}.png")
-                                                        put(android.provider.MediaStore.MediaColumns.MIME_TYPE, "image/png")
-                                                        put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, android.os.Environment.DIRECTORY_PICTURES + "/QRKit")
-                                                    }
-                                                    val uri = context.contentResolver.insert(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
-                                                    if (uri != null) {
-                                                        context.contentResolver.openOutputStream(uri)?.use { out ->
-                                                            bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)
+                                        coroutineScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                                            val file = if (q.imagePath.startsWith("/")) File(q.imagePath) else File(context.filesDir, q.imagePath)
+                                            if (file.exists()) {
+                                                try {
+                                                    val bitmap = android.graphics.BitmapFactory.decodeFile(file.absolutePath)
+                                                    if (bitmap != null) {
+                                                        val contentValues = android.content.ContentValues().apply {
+                                                            put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, "QR_${System.currentTimeMillis()}.png")
+                                                            put(android.provider.MediaStore.MediaColumns.MIME_TYPE, "image/png")
+                                                            put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, android.os.Environment.DIRECTORY_PICTURES + "/QRKit")
                                                         }
-                                                        Toast.makeText(context, "Saved to Gallery", Toast.LENGTH_SHORT).show()
-                                                    } else {
-                                                        Toast.makeText(context, "Failed to save", Toast.LENGTH_SHORT).show()
+                                                        val uri = context.contentResolver.insert(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
+                                                        if (uri != null) {
+                                                            context.contentResolver.openOutputStream(uri)?.use { out ->
+                                                                bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)
+                                                            }
+                                                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                                                Toast.makeText(context, "Saved to Gallery", Toast.LENGTH_SHORT).show()
+                                                            }
+                                                        } else {
+                                                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                                                Toast.makeText(context, "Failed to save", Toast.LENGTH_SHORT).show()
+                                                            }
+                                                        }
+                                                    }
+                                                } catch (e: Exception) {
+                                                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                                        Toast.makeText(context, "Error saving image", Toast.LENGTH_SHORT).show()
                                                     }
                                                 }
-                                            } catch (e: Exception) {
-                                                Toast.makeText(context, "Error saving image", Toast.LENGTH_SHORT).show()
                                             }
                                         }
                                     }
@@ -465,38 +478,80 @@ fun SharedTransitionScope.QrDetailScreen(
                         .padding(bottom = 16.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    val qrBgRadius = qr?.bgRadius ?: 0f
-                    val cornerPercent = (qrBgRadius * 50).coerceIn(0f, 50f).toInt()
-                    val qrShape = RoundedCornerShape(percent = cornerPercent)
-                    val qrBgColor = Color(qr?.bgColor ?: 0xFFFFFFFFL)
+                    val isFramed = qr?.isFramed(context) == true
+                    if (isFramed) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(0.72f)
+                                .aspectRatio(600f / 740f)
+                                .sharedElement(
+                                    sharedContentState = rememberSharedContentState(key = "qr_${qr!!.id}"),
+                                    animatedVisibilityScope = animatedVisibilityScope
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (qr!!.imagePath.isNotBlank()) {
+                                val imgFile = remember(qr!!.imagePath) {
+                                    if (qr!!.imagePath.startsWith("/")) File(qr!!.imagePath) else File(context.filesDir, qr!!.imagePath)
+                                }
+                                val imageRequest = remember(imgFile) {
+                                    coil.request.ImageRequest.Builder(context)
+                                        .data(imgFile)
+                                        .crossfade(false)
+                                        .allowHardware(true)
+                                        .build()
+                                }
+                                AsyncImage(
+                                    model = imageRequest,
+                                    contentDescription = "QR Code",
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Fit
+                                )
+                            }
+                        }
+                    } else {
+                        val qrBgRadius = qr?.bgRadius ?: 0f
+                        val cornerPercent = (qrBgRadius * 50).coerceIn(0f, 50f).toInt()
+                        val qrShape = remember(cornerPercent) { RoundedCornerShape(percent = cornerPercent) }
+                        val qrBgColor = Color(qr?.bgColor ?: 0xFFFFFFFFL)
 
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth(0.7f)
-                            .aspectRatio(1f)
-                            .sharedElement(
-                                sharedContentState = rememberSharedContentState(key = "qr_${qr!!.id}"),
-                                animatedVisibilityScope = animatedVisibilityScope,
-                                clipInOverlayDuringTransition = OverlayClip(qrShape)
-                            )
-                            .shadow(
-                                elevation = if (cornerPercent > 0) 3.dp else 2.dp,
-                                shape = qrShape,
-                                ambientColor = Color.Black.copy(alpha = 0.08f),
-                                spotColor = Color.Black.copy(alpha = 0.04f)
-                            )
-                            .clip(qrShape)
-                            .background(qrBgColor),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        if (qr!!.imagePath.isNotBlank()) {
-                            val imgFile = if (qr!!.imagePath.startsWith("/")) File(qr!!.imagePath) else File(context.filesDir, qr!!.imagePath)
-                            AsyncImage(
-                                model = imgFile,
-                                contentDescription = "QR Code",
-                                modifier = Modifier.fillMaxSize(),
-                                contentScale = ContentScale.Fit
-                            )
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(0.7f)
+                                .aspectRatio(1f)
+                                .sharedElement(
+                                    sharedContentState = rememberSharedContentState(key = "qr_${qr!!.id}"),
+                                    animatedVisibilityScope = animatedVisibilityScope,
+                                    clipInOverlayDuringTransition = OverlayClip(qrShape)
+                                )
+                                .shadow(
+                                    elevation = if (cornerPercent > 0) 3.dp else 2.dp,
+                                    shape = qrShape,
+                                    ambientColor = Color.Black.copy(alpha = 0.08f),
+                                    spotColor = Color.Black.copy(alpha = 0.04f)
+                                )
+                                .clip(qrShape)
+                                .background(qrBgColor),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (qr!!.imagePath.isNotBlank()) {
+                                val imgFile = remember(qr!!.imagePath) {
+                                    if (qr!!.imagePath.startsWith("/")) File(qr!!.imagePath) else File(context.filesDir, qr!!.imagePath)
+                                }
+                                val imageRequest = remember(imgFile) {
+                                    coil.request.ImageRequest.Builder(context)
+                                        .data(imgFile)
+                                        .crossfade(false)
+                                        .allowHardware(true)
+                                        .build()
+                                }
+                                AsyncImage(
+                                    model = imageRequest,
+                                    contentDescription = "QR Code",
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Fit
+                                )
+                            }
                         }
                     }
                 }

@@ -16,12 +16,15 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.NavType
+import androidx.navigation.navArgument
 import com.app.qrkit.ui.QrViewModel
 import com.app.qrkit.ui.screens.ScanQrScreen
 import com.app.qrkit.ui.screens.GenerateQrScreen
 import com.app.qrkit.ui.screens.HomeScreen
 import com.app.qrkit.ui.screens.SettingsScreen
 import com.app.qrkit.ui.screens.QrDetailScreen
+import com.app.qrkit.ui.screens.PremiumScreen
 import androidx.compose.runtime.getValue
 import androidx.navigation.compose.currentBackStackEntryAsState
 import com.app.qrkit.ui.theme.UpdateSystemBars
@@ -75,12 +78,45 @@ fun NavHostController.navigateUpSafely(): Boolean {
 fun AppNavGraph(
     viewModel: QrViewModel,
     modifier: Modifier = Modifier,
-    navController: NavHostController = rememberNavController()
+    navController: NavHostController = rememberNavController(),
+    shortcutAction: String? = null,
+    onShortcutHandled: () -> Unit = {}
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val sharedPrefs = remember { context.getSharedPreferences("qr_kit_prefs", android.content.Context.MODE_PRIVATE) }
     val hasCompletedOnboarding = remember { sharedPrefs.getBoolean("onboarding_completed", false) }
     val startDestination = if (hasCompletedOnboarding) Screen.Home.route else Screen.Onboarding.route
+
+    androidx.compose.runtime.LaunchedEffect(shortcutAction) {
+        if (!shortcutAction.isNullOrEmpty()) {
+            val targetRoute = when (shortcutAction) {
+                "scan" -> Screen.ScanQr.route
+                "create" -> Screen.GenerateQr.route
+                else -> null
+            }
+            if (targetRoute != null) {
+                // Wait until NavController has mounted the start destination and reached resumed state
+                var attempts = 0
+                while (attempts < 30 && (navController.currentDestination == null ||
+                       navController.currentBackStackEntry?.lifecycle?.currentState != androidx.lifecycle.Lifecycle.State.RESUMED)) {
+                    kotlinx.coroutines.delay(50)
+                    attempts++
+                }
+
+                // If onboarding hasn't been completed yet, mark it complete so user isn't blocked
+                if (!hasCompletedOnboarding) {
+                    sharedPrefs.edit().putBoolean("onboarding_completed", true).apply()
+                }
+
+                if (navController.currentDestination?.route != targetRoute) {
+                    navController.navigate(targetRoute) {
+                        launchSingleTop = true
+                    }
+                }
+                onShortcutHandled()
+            }
+        }
+    }
 
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route ?: startDestination
@@ -105,6 +141,7 @@ fun AppNavGraph(
     androidx.compose.animation.SharedTransitionLayout {
         val pushRoutes = setOf(
             Screen.GenerateQr.route,
+            Screen.Premium.route,
             Screen.Settings.route,
             Screen.Feedback.route,
             Screen.Help.route,
@@ -176,6 +213,7 @@ fun AppNavGraph(
                         onQrClick = { id -> navController.navigateSafely(Screen.QrDetail.createRoute(id)) },
                         onGenerateClick = { navController.navigateSafely(Screen.GenerateQr.route) },
                         onSettingsClick = { navController.navigateSafely(Screen.Settings.route) },
+                        onPremiumClick = { navController.navigateSafely(Screen.Premium.route) },
                         animatedVisibilityScope = this@composable
                     )
                 }
@@ -251,6 +289,11 @@ fun AppNavGraph(
                     onBackClick = { navController.navigateUpSafely() }
                 )
             }
+            composable(Screen.Premium.route) {
+                PremiumScreen(
+                    onBackClick = { navController.popBackStackSafely() }
+                )
+            }
             composable(Screen.Onboarding.route) {
                 com.app.qrkit.ui.screens.OnboardingScreen(
                     onFinish = {
@@ -280,6 +323,7 @@ sealed class Screen(val route: String) {
     object Terms : Screen("terms")
     object ScanQr : Screen("scan_qr")
     object GenerateQr : Screen("generate_qr")
+    object Premium : Screen("premium")
     object Onboarding : Screen("onboarding")
     object QrDetail : Screen("qr_detail/{qrId}") {
         fun createRoute(qrId: String) = "qr_detail/$qrId"

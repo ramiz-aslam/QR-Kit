@@ -25,6 +25,7 @@ fun SharedTransitionScope.MainPagerScreen(
     onQrClick: (String) -> Unit,
     onGenerateClick: () -> Unit,
     onSettingsClick: () -> Unit,
+    onPremiumClick: () -> Unit,
     animatedVisibilityScope: AnimatedVisibilityScope
 ) {
     val pagerState = rememberPagerState(pageCount = { 2 })
@@ -44,6 +45,7 @@ fun SharedTransitionScope.MainPagerScreen(
                     onQrClick = onQrClick,
                     onGenerateClick = onGenerateClick,
                     onSettingsClick = onSettingsClick,
+                    onPremiumClick = onPremiumClick,
                     animatedVisibilityScope = animatedVisibilityScope
                 )
                 1 -> VaultScreen(

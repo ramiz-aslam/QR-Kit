@@ -628,7 +628,9 @@ fun ScanQrScreen(viewModel: com.app.qrkit.ui.QrViewModel, onBackClick: () -> Uni
                 AndroidView(
                     modifier = Modifier.fillMaxSize(),
                     factory = { ctx ->
-                        val previewView = PreviewView(ctx)
+                        val previewView = PreviewView(ctx).apply {
+                            implementationMode = PreviewView.ImplementationMode.PERFORMANCE
+                        }
                         val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
                         
                         cameraProviderFuture.addListener({

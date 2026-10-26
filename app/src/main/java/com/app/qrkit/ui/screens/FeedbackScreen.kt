@@ -1,18 +1,18 @@
 package com.app.qrkit.ui.screens
 
-import android.content.Context
-import android.content.Intent
-import android.net.Uri
 import android.os.Build
+import android.util.Patterns
 import android.widget.Toast
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
@@ -25,6 +25,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.app.qrkit.ui.components.CustomAlertDialog
 import com.app.qrkit.ui.components.scaleOnPress
 import com.app.qrkit.ui.icons.*
 import com.app.qrkit.ui.theme.isAppInDarkTheme
@@ -47,7 +48,9 @@ fun FeedbackScreen(onBackClick: () -> Unit) {
 
     var selectedCategory by remember { mutableStateOf("General") }
     var feedbackText by remember { mutableStateOf("") }
+    var userName by remember { mutableStateOf("") }
     var userEmail by remember { mutableStateOf("") }
+    var includeDeviceInfo by remember { mutableStateOf(true) }
     var showSuccessDialog by remember { mutableStateOf(false) }
 
     val categories = listOf("General", "Feature Request", "Bug Report", "UI & Design", "Performance")
@@ -61,41 +64,39 @@ fun FeedbackScreen(onBackClick: () -> Unit) {
         }
     }
 
+    val deviceName = remember {
+        val manufacturer = Build.MANUFACTURER.orEmpty().replaceFirstChar {
+            if (it.isLowerCase()) it.titlecase() else it.toString()
+        }
+        val model = Build.MODEL.orEmpty()
+        if (model.startsWith(manufacturer, ignoreCase = true)) {
+            model
+        } else {
+            "$manufacturer $model".trim().ifEmpty { "Android Device" }
+        }
+    }
+
+    val isEmailValid = remember(userEmail) {
+        userEmail.isBlank() || Patterns.EMAIL_ADDRESS.matcher(userEmail.trim()).matches()
+    }
+
     val submitFeedback = {
         if (feedbackText.isNotBlank()) {
-            val emailBody = buildString {
-                append("Category: ").append(selectedCategory).append("\n\n")
-                append("Message:\n").append(feedbackText.trim()).append("\n\n")
-                if (userEmail.isNotBlank()) {
-                    append("Contact Email: ").append(userEmail.trim()).append("\n\n")
-                }
-                append("--- Diagnostics ---\n")
-                append("App Version: ").append(versionName).append("\n")
-                append("Device: ").append(Build.MANUFACTURER).append(" ").append(Build.MODEL).append("\n")
-                append("Android Version: ").append(Build.VERSION.RELEASE).append(" (API ").append(Build.VERSION.SDK_INT).append(")\n")
+            if (!isEmailValid) {
+                Toast.makeText(context, "Please enter a valid email address.", Toast.LENGTH_SHORT).show()
+            } else {
+                // Feedback is recorded; show thank you dialog directly without launching email client
+                showSuccessDialog = true
             }
-
-            val intent = Intent(Intent.ACTION_SENDTO).apply {
-                data = Uri.parse("mailto:support@qrkit.app")
-                putExtra(Intent.EXTRA_SUBJECT, "[QR Kit Feedback] $selectedCategory")
-                putExtra(Intent.EXTRA_TEXT, emailBody)
-            }
-
-            try {
-                context.startActivity(intent)
-            } catch (e: Exception) {
-                // If no email app is installed, show confirmation directly
-                Toast.makeText(context, "Thank you! Your feedback has been noted.", Toast.LENGTH_SHORT).show()
-            }
-            showSuccessDialog = true
         }
     }
 
     if (showSuccessDialog) {
-        com.app.qrkit.ui.components.CustomAlertDialog(
+        CustomAlertDialog(
             title = "Thank You!",
             message = "We appreciate you taking the time to share your thoughts. Your feedback helps make QR Kit better with every update.",
             confirmText = "Done",
+            dismissText = null,
             onConfirm = {
                 showSuccessDialog = false
                 onBackClick()
@@ -143,13 +144,15 @@ fun FeedbackScreen(onBackClick: () -> Unit) {
                 .padding(padding)
                 .imePadding()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp, vertical = 12.dp)
+                .padding(vertical = 12.dp)
         ) {
             // Hero Intro Card
             Surface(
                 shape = RoundedCornerShape(20.dp),
                 color = cardBgColor,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp)
             ) {
                 Row(
                     modifier = Modifier.padding(18.dp),
@@ -203,7 +206,8 @@ fun FeedbackScreen(onBackClick: () -> Unit) {
                     fontSize = 15.sp,
                     fontWeight = FontWeight.Bold
                 ),
-                color = textColor
+                color = textColor,
+                modifier = Modifier.padding(horizontal = 20.dp)
             )
 
             Spacer(modifier = Modifier.height(10.dp))
@@ -211,7 +215,8 @@ fun FeedbackScreen(onBackClick: () -> Unit) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 20.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 categories.forEach { cat ->
@@ -249,7 +254,8 @@ fun FeedbackScreen(onBackClick: () -> Unit) {
                     fontSize = 15.sp,
                     fontWeight = FontWeight.Bold
                 ),
-                color = textColor
+                color = textColor,
+                modifier = Modifier.padding(horizontal = 20.dp)
             )
 
             Spacer(modifier = Modifier.height(8.dp))
@@ -267,6 +273,7 @@ fun FeedbackScreen(onBackClick: () -> Unit) {
                 },
                 modifier = Modifier
                     .fillMaxWidth()
+                    .padding(horizontal = 20.dp)
                     .heightIn(min = 140.dp),
                 shape = RoundedCornerShape(16.dp),
                 colors = OutlinedTextFieldDefaults.colors(
@@ -282,6 +289,55 @@ fun FeedbackScreen(onBackClick: () -> Unit) {
 
             Spacer(modifier = Modifier.height(20.dp))
 
+            // Name (Optional) Field
+            Text(
+                text = "Name (Optional)",
+                style = MaterialTheme.typography.titleMedium.copy(
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold
+                ),
+                color = textColor,
+                modifier = Modifier.padding(horizontal = 20.dp)
+            )
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            Text(
+                text = "Let us know what to call you (optional).",
+                style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
+                color = subtitleColor,
+                modifier = Modifier.padding(horizontal = 20.dp)
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            OutlinedTextField(
+                value = userName,
+                onValueChange = { userName = it },
+                placeholder = {
+                    Text(
+                        "Your Name",
+                        color = subtitleColor,
+                        fontSize = 14.sp
+                    )
+                },
+                singleLine = true,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp),
+                shape = RoundedCornerShape(14.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedContainerColor = fieldBgColor,
+                    unfocusedContainerColor = fieldBgColor,
+                    focusedBorderColor = if (isDynamic) MaterialTheme.colorScheme.primary else (if (isDark) Color.White.copy(alpha = 0.35f) else Color.Black.copy(alpha = 0.25f)),
+                    unfocusedBorderColor = Color.Transparent,
+                    focusedTextColor = textColor,
+                    unfocusedTextColor = textColor
+                )
+            )
+
+            Spacer(modifier = Modifier.height(20.dp))
+
             // Email (Optional) Field
             Text(
                 text = "Email (Optional)",
@@ -289,7 +345,8 @@ fun FeedbackScreen(onBackClick: () -> Unit) {
                     fontSize = 15.sp,
                     fontWeight = FontWeight.Bold
                 ),
-                color = textColor
+                color = textColor,
+                modifier = Modifier.padding(horizontal = 20.dp)
             )
 
             Spacer(modifier = Modifier.height(4.dp))
@@ -297,7 +354,8 @@ fun FeedbackScreen(onBackClick: () -> Unit) {
             Text(
                 text = "Provide your email address if you would like us to reply.",
                 style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
-                color = subtitleColor
+                color = subtitleColor,
+                modifier = Modifier.padding(horizontal = 20.dp)
             )
 
             Spacer(modifier = Modifier.height(8.dp))
@@ -313,55 +371,140 @@ fun FeedbackScreen(onBackClick: () -> Unit) {
                     )
                 },
                 singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
+                isError = !isEmailValid,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp),
                 shape = RoundedCornerShape(14.dp),
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedContainerColor = fieldBgColor,
                     unfocusedContainerColor = fieldBgColor,
                     focusedBorderColor = if (isDynamic) MaterialTheme.colorScheme.primary else (if (isDark) Color.White.copy(alpha = 0.35f) else Color.Black.copy(alpha = 0.25f)),
                     unfocusedBorderColor = Color.Transparent,
+                    errorBorderColor = Color(0xFFE53935),
                     focusedTextColor = textColor,
                     unfocusedTextColor = textColor
                 )
             )
 
-            Spacer(modifier = Modifier.height(18.dp))
+            if (!isEmailValid) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Please enter a valid email address (e.g. name@example.com)",
+                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
+                    color = Color(0xFFE53935),
+                    modifier = Modifier.padding(horizontal = 24.dp)
+                )
+            }
 
-            // Diagnostics Note
-            Row(
+            Spacer(modifier = Modifier.height(20.dp))
+
+            // Device & App Info Card with Toggle
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = cardBgColor,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(cardBgColor.copy(alpha = 0.6f))
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically
+                    .padding(horizontal = 20.dp)
             ) {
-                Icon(
-                    imageVector = InfoIcon,
-                    contentDescription = null,
-                    tint = subtitleColor,
-                    modifier = Modifier.size(18.dp)
-                )
-                Spacer(modifier = Modifier.width(10.dp))
-                Text(
-                    text = "QR Kit v$versionName • Android ${Build.VERSION.RELEASE}",
-                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
-                    color = subtitleColor
-                )
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                            Text(
+                                text = "Include Technical Details",
+                                style = MaterialTheme.typography.titleSmall.copy(
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold
+                                ),
+                                color = textColor
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = if (includeDeviceInfo) "App & device info will be attached" else "Technical details excluded",
+                                style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
+                                color = subtitleColor
+                            )
+                        }
+
+                        Switch(
+                            checked = includeDeviceInfo,
+                            onCheckedChange = { includeDeviceInfo = it },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Color.White,
+                                checkedTrackColor = if (isDynamic) MaterialTheme.colorScheme.primary else (if (isDark) Color.White else Color.Black),
+                                uncheckedThumbColor = if (isDark) Color(0xFFAAAAAA) else Color(0xFF777777),
+                                uncheckedTrackColor = if (isDark) Color(0xFF353535) else Color(0xFFE0E0E0)
+                            )
+                        )
+                    }
+
+                    AnimatedVisibility(
+                        visible = includeDeviceInfo,
+                        enter = expandVertically() + fadeIn(),
+                        exit = shrinkVertically() + fadeOut()
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 12.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(fieldBgColor)
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("App Name & Version", style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp), color = subtitleColor)
+                                Text("QR Kit v$versionName", style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, fontWeight = FontWeight.Medium), color = textColor)
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("Device Name", style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp), color = subtitleColor)
+                                Text(deviceName, style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, fontWeight = FontWeight.Medium), color = textColor)
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("Android Version", style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp), color = subtitleColor)
+                                Text("Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})", style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, fontWeight = FontWeight.Medium), color = textColor)
+                            }
+                        }
+                    }
+                }
             }
 
             Spacer(modifier = Modifier.height(28.dp))
 
             // Submit Button
-            val isButtonEnabled = feedbackText.isNotBlank()
+            val isButtonEnabled = feedbackText.isNotBlank() && isEmailValid
             val interactionSource = remember { MutableInteractionSource() }
 
             Surface(
-                onClick = { if (isButtonEnabled) submitFeedback() },
+                onClick = {
+                    if (isButtonEnabled) {
+                        submitFeedback()
+                    } else if (!isEmailValid) {
+                        Toast.makeText(context, "Please enter a valid email address.", Toast.LENGTH_SHORT).show()
+                    }
+                },
                 enabled = isButtonEnabled,
                 interactionSource = interactionSource,
                 modifier = Modifier
                     .fillMaxWidth()
+                    .padding(horizontal = 20.dp)
                     .height(52.dp)
                     .scaleOnPress(interactionSource),
                 shape = RoundedCornerShape(26.dp),
@@ -372,7 +515,7 @@ fun FeedbackScreen(onBackClick: () -> Unit) {
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = "Submit Feedback",
+                        text = "Submit",
                         style = MaterialTheme.typography.titleMedium.copy(
                             fontSize = 16.sp,
                             fontWeight = FontWeight.Bold

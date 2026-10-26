@@ -11,9 +11,12 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 
 class QrViewModel(application: Application) : AndroidViewModel(application) {
-    private val repository = QrRepository(QrDatabase.getDatabase(application).qrDao())
+    private val db = QrDatabase.getDatabase(application)
+    private val repository = QrRepository(db.qrDao())
 
     val allQrCodes: StateFlow<List<QrCode>> = repository.allQrCodes.stateIn(
         viewModelScope,
@@ -30,36 +33,36 @@ class QrViewModel(application: Application) : AndroidViewModel(application) {
     fun getQrCodesByCategory(name: String) = repository.getQrCodesByCategory(name)
     
     suspend fun getQrCodeById(id: String): QrCode? {
-        return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { repository.getQrCodeById(id) }
+        return withContext(Dispatchers.IO) { repository.getQrCodeById(id) }
     }
 
     fun insertQrCode(qrCode: QrCode) {
         viewModelScope.launch {
-            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { repository.insertQrCode(qrCode) }
+            withContext(Dispatchers.IO) { repository.insertQrCode(qrCode) }
         }
     }
 
     fun deleteQrCode(qrCode: QrCode) {
         viewModelScope.launch {
-            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { repository.deleteQrCode(qrCode) }
+            withContext(Dispatchers.IO) { repository.deleteQrCode(qrCode) }
         }
     }
 
     fun deleteQrCodes(qrCodes: List<QrCode>) {
         viewModelScope.launch {
-            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { repository.deleteQrCodes(qrCodes) }
+            withContext(Dispatchers.IO) { repository.deleteQrCodes(qrCodes) }
         }
     }
 
     fun deleteAllQrCodes() {
         viewModelScope.launch {
-            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { repository.deleteAllQrCodes() }
+            withContext(Dispatchers.IO) { repository.deleteAllQrCodes() }
         }
     }
 
     fun createCategory(name: String) {
         viewModelScope.launch {
-            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { repository.insertCategory(QrCategory(name)) }
+            withContext(Dispatchers.IO) { repository.insertCategory(QrCategory(name)) }
         }
     }
 }
